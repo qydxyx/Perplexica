@@ -1,39 +1,45 @@
 #!/usr/bin/env node
 
-const Database = require('better-sqlite3');
+const fs = require('fs');
 const path = require('path');
 
 const dbPath = path.join(process.cwd(), 'data', 'db.sqlite');
-const db = new Database(dbPath);
+const dataDir = path.dirname(dbPath);
 
-console.log('🚀 Initializing database...');
+// Ensure data directory exists
+if (!fs.existsSync(dataDir)) {
+  fs.mkdirSync(dataDir, { recursive: true });
+}
 
-// Create auth-related tables
-db.exec(`
-  CREATE TABLE IF NOT EXISTS users (
+// Check if database file exists, create empty one if not
+if (!fs.existsSync(dbPath)) {
+  fs.writeFileSync(dbPath, '');
+}
+
+// SQL schema
+const schema = `
+-- Auth tables for Perplexica
+CREATE TABLE IF NOT EXISTS users (
     id TEXT PRIMARY KEY DEFAULT (hex(randomblob(16))),
     email TEXT UNIQUE NOT NULL,
     password_hash TEXT NOT NULL,
     name TEXT NOT NULL,
     role TEXT NOT NULL DEFAULT 'user' CHECK (role IN ('admin', 'user')),
+    is_active INTEGER NOT NULL DEFAULT 1,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-  );
-`);
+);
 
-db.exec(`
-  CREATE TABLE IF NOT EXISTS sessions (
+CREATE TABLE IF NOT EXISTS sessions (
     id TEXT PRIMARY KEY DEFAULT (hex(randomblob(16))),
     user_id TEXT NOT NULL,
-    token TEXT UNIQUE NOT NULL,
+    refresh_token TEXT UNIQUE NOT NULL,
     expires_at DATETIME NOT NULL,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-  );
-`);
+);
 
-db.exec(`
-  CREATE TABLE IF NOT EXISTS user_configs (
+CREATE TABLE IF NOT EXISTS user_configs (
     id TEXT PRIMARY KEY DEFAULT (hex(randomblob(16))),
     user_id TEXT UNIQUE NOT NULL,
     providers TEXT DEFAULT '{}',
@@ -43,84 +49,42 @@ db.exec(`
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-  );
-`);
-
-// Check if chats table exists and add user_id column if missing
-const tablesInfo = db
-  .prepare("SELECT name FROM sqlite_master WHERE type='table'")
-  .all();
-const chatTableExists = tablesInfo.some((table) => table.name === 'chats');
-
-if (chatTableExists) {
-  // Check if user_id column exists in chats table
-  const chatsColumns = db.prepare('PRAGMA table_info(chats)').all();
-  const hasUserIdColumn = chatsColumns.some((col) => col.name === 'user_id');
-
-  if (!hasUserIdColumn) {
-    console.log('Adding user_id column to chats table...');
-    db.exec('ALTER TABLE chats ADD COLUMN user_id TEXT REFERENCES users(id)');
-  }
-} else {
-  // Create chats table with user_id
-  db.exec(`
-    CREATE TABLE chats (
-      id TEXT PRIMARY KEY DEFAULT (hex(randomblob(16))),
-      title TEXT,
-      user_id TEXT,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-    );
-  `);
-}
-
-// Check if messages table exists and add user_id column if missing
-const messageTableExists = tablesInfo.some(
-  (table) => table.name === 'messages',
 );
 
-if (messageTableExists) {
-  const messagesColumns = db.prepare('PRAGMA table_info(messages)').all();
-  const hasUserIdColumn = messagesColumns.some((col) => col.name === 'user_id');
-
-  if (!hasUserIdColumn) {
-    console.log('Adding user_id column to messages table...');
-    db.exec(
-      'ALTER TABLE messages ADD COLUMN user_id TEXT REFERENCES users(id)',
-    );
-  }
-} else {
-  // Create messages table with user_id
-  db.exec(`
-    CREATE TABLE messages (
-      id TEXT PRIMARY KEY DEFAULT (hex(randomblob(16))),
-      content TEXT NOT NULL,
-      role TEXT NOT NULL CHECK (role IN ('user', 'assistant')),
-      chat_id TEXT NOT NULL,
-      user_id TEXT,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (chat_id) REFERENCES chats(id) ON DELETE CASCADE,
-      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-    );
-  `);
-}
-
-// Create indexes
-db.exec('CREATE INDEX IF NOT EXISTS idx_chats_user_id ON chats(user_id);');
-db.exec(
-  'CREATE INDEX IF NOT EXISTS idx_messages_chat_id ON messages(chat_id);',
+-- Create chats table if it doesn't exist (updated with user support)
+CREATE TABLE IF NOT EXISTS chats (
+    id TEXT PRIMARY KEY DEFAULT (hex(randomblob(16))),
+    title TEXT NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    focus_mode TEXT NOT NULL,
+    files TEXT DEFAULT '[]',
+    user_id TEXT NOT NULL,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
-db.exec(
-  'CREATE INDEX IF NOT EXISTS idx_messages_user_id ON messages(user_id);',
-);
-db.exec(
-  'CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id);',
-);
-db.exec('CREATE INDEX IF NOT EXISTS idx_sessions_token ON sessions(token);');
 
-db.close();
+-- Create messages table if it doesn't exist (updated with user support)
+CREATE TABLE IF NOT EXISTS messages (
+    id INTEGER PRIMARY KEY,
+    content TEXT NOT NULL,
+    chat_id TEXT NOT NULL,
+    message_id TEXT NOT NULL,
+    role TEXT CHECK (role IN ('assistant', 'user')),
+    metadata TEXT,
+    user_id TEXT,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
 
-console.log('✅ Database initialized successfully!');
-console.log('📍 Database location:', dbPath);
+-- Create indexes for performance
+CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id);
+CREATE INDEX IF NOT EXISTS idx_sessions_refresh_token ON sessions(refresh_token);
+CREATE INDEX IF NOT EXISTS idx_user_configs_user_id ON user_configs(user_id);
+CREATE INDEX IF NOT EXISTS idx_chats_user_id ON chats(user_id);
+CREATE INDEX IF NOT EXISTS idx_messages_user_id ON messages(user_id);
+CREATE INDEX IF NOT EXISTS idx_messages_chat_id ON messages(chat_id);
+`;
+
+console.log('✅ Database file created at:', dbPath);
+console.log('✅ Database setup complete');
+console.log(
+  'Note: Database schema will be initialized on first application run.',
+);
