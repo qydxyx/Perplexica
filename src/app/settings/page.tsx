@@ -1,6 +1,11 @@
 'use client';
 
-import { Settings as SettingsIcon, ArrowLeft, Loader2 } from 'lucide-react';
+import {
+  Settings as SettingsIcon,
+  ArrowLeft,
+  Loader2,
+  Lock,
+} from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { cn } from '@/lib/utils';
 import { Switch } from '@headlessui/react';
@@ -8,6 +13,8 @@ import ThemeSwitcher from '@/components/theme/Switcher';
 import { ImagesIcon, VideoIcon } from 'lucide-react';
 import Link from 'next/link';
 import { PROVIDER_METADATA } from '@/lib/providers';
+import { useAuth } from '@/lib/hooks/useAuth';
+import { useRouter } from 'next/navigation';
 
 interface SettingsType {
   chatModelProviders: {
@@ -131,6 +138,9 @@ const SettingsSection = ({
 );
 
 const Page = () => {
+  const { isAuthenticated, isLoading: authLoading, user } = useAuth();
+  const router = useRouter();
+
   const [config, setConfig] = useState<SettingsType | null>(null);
   const [chatModels, setChatModels] = useState<Record<string, any>>({});
   const [embeddingModels, setEmbeddingModels] = useState<Record<string, any>>(
@@ -155,6 +165,13 @@ const Page = () => {
     'Metric',
   );
   const [savingStates, setSavingStates] = useState<Record<string, boolean>>({});
+
+  // Redirect to login if not authenticated
+  useEffect(() => {
+    if (!authLoading && !isAuthenticated) {
+      router.push('/auth/login');
+    }
+  }, [isAuthenticated, authLoading, router]);
 
   useEffect(() => {
     const fetchConfig = async () => {
@@ -391,6 +408,44 @@ const Page = () => {
     }
   };
 
+  // Show loading while checking auth
+  if (authLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-light-primary dark:bg-dark-primary">
+        <Loader2 className="w-8 h-8 animate-spin text-black/70 dark:text-white/70" />
+      </div>
+    );
+  }
+
+  // Show access denied if not authenticated
+  if (!isAuthenticated) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center bg-light-primary dark:bg-dark-primary px-4">
+        <div className="text-center space-y-6">
+          <div className="flex justify-center">
+            <div className="p-4 bg-red-100 dark:bg-red-900/20 rounded-full">
+              <Lock className="w-12 h-12 text-red-600 dark:text-red-400" />
+            </div>
+          </div>
+          <div>
+            <h1 className="text-2xl font-bold text-black dark:text-white mb-2">
+              Access Restricted
+            </h1>
+            <p className="text-black/70 dark:text-white/70 mb-6">
+              You must be logged in to access the settings page.
+            </p>
+            <Link
+              href="/auth/login"
+              className="inline-flex items-center px-4 py-2 bg-[#24A0ED] hover:bg-[#1E8ED6] text-white rounded-lg transition-colors"
+            >
+              Sign In
+            </Link>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="max-w-3xl mx-auto">
       <div className="flex flex-col pt-4">
@@ -402,6 +457,11 @@ const Page = () => {
             <SettingsIcon size={23} />
             <h1 className="text-3xl font-medium p-2">Settings</h1>
           </div>
+          {user && (
+            <div className="ml-auto text-sm text-black/70 dark:text-white/70">
+              Signed in as: {user.email}
+            </div>
+          )}
         </div>
         <hr className="border-t border-[#2B2C2C] my-4 w-full" />
       </div>

@@ -1,27 +1,38 @@
 import {
-  getAnthropicApiKey,
-  getCustomOpenaiApiKey,
-  getCustomOpenaiApiUrl,
-  getCustomOpenaiModelName,
-  getGeminiApiKey,
-  getGroqApiKey,
-  getOllamaApiEndpoint,
-  getOpenaiApiKey,
-  getDeepseekApiKey,
-  getAimlApiKey,
-  getLMStudioApiEndpoint,
-  getLemonadeApiEndpoint,
-  getLemonadeApiKey,
-  updateConfig,
-  getOllamaApiKey,
-} from '@/lib/config';
-import {
   getAvailableChatModelProviders,
   getAvailableEmbeddingModelProviders,
 } from '@/lib/providers';
+import { authenticateRequest } from '@/lib/auth';
+import {
+  getUserOpenaiApiKey,
+  getUserGroqApiKey,
+  getUserAnthropicApiKey,
+  getUserGeminiApiKey,
+  getUserOllamaApiEndpoint,
+  getUserOllamaApiKey,
+  getUserDeepseekApiKey,
+  getUserAimlApiKey,
+  getUserLMStudioApiEndpoint,
+  getUserLemonadeApiEndpoint,
+  getUserLemonadeApiKey,
+  getUserCustomOpenaiApiUrl,
+  getUserCustomOpenaiApiKey,
+  getUserCustomOpenaiModelName,
+  updateUserConfig,
+} from '@/lib/userConfig';
+import { NextRequest } from 'next/server';
 
-export const GET = async (req: Request) => {
+export const GET = async (req: NextRequest) => {
   try {
+    // Authenticate user
+    const user = await authenticateRequest(req);
+    if (!user) {
+      return Response.json(
+        { message: 'Authentication required' },
+        { status: 401 },
+      );
+    }
+
     const config: Record<string, any> = {};
 
     const [chatModelProviders, embeddingModelProviders] = await Promise.all([
@@ -54,20 +65,23 @@ export const GET = async (req: Request) => {
       });
     }
 
-    config['openaiApiKey'] = getOpenaiApiKey();
-    config['ollamaApiUrl'] = getOllamaApiEndpoint();
-    config['ollamaApiKey'] = getOllamaApiKey();
-    config['lmStudioApiUrl'] = getLMStudioApiEndpoint();
-    config['lemonadeApiUrl'] = getLemonadeApiEndpoint();
-    config['lemonadeApiKey'] = getLemonadeApiKey();
-    config['anthropicApiKey'] = getAnthropicApiKey();
-    config['groqApiKey'] = getGroqApiKey();
-    config['geminiApiKey'] = getGeminiApiKey();
-    config['deepseekApiKey'] = getDeepseekApiKey();
-    config['aimlApiKey'] = getAimlApiKey();
-    config['customOpenaiApiUrl'] = getCustomOpenaiApiUrl();
-    config['customOpenaiApiKey'] = getCustomOpenaiApiKey();
-    config['customOpenaiModelName'] = getCustomOpenaiModelName();
+    // Get user-specific configuration values
+    config['openaiApiKey'] = await getUserOpenaiApiKey(user.id);
+    config['ollamaApiUrl'] = await getUserOllamaApiEndpoint(user.id);
+    config['ollamaApiKey'] = await getUserOllamaApiKey(user.id);
+    config['lmStudioApiUrl'] = await getUserLMStudioApiEndpoint(user.id);
+    config['lemonadeApiUrl'] = await getUserLemonadeApiEndpoint(user.id);
+    config['lemonadeApiKey'] = await getUserLemonadeApiKey(user.id);
+    config['anthropicApiKey'] = await getUserAnthropicApiKey(user.id);
+    config['groqApiKey'] = await getUserGroqApiKey(user.id);
+    config['geminiApiKey'] = await getUserGeminiApiKey(user.id);
+    config['deepseekApiKey'] = await getUserDeepseekApiKey(user.id);
+    config['aimlApiKey'] = await getUserAimlApiKey(user.id);
+    config['customOpenaiApiUrl'] = await getUserCustomOpenaiApiUrl(user.id);
+    config['customOpenaiApiKey'] = await getUserCustomOpenaiApiKey(user.id);
+    config['customOpenaiModelName'] = await getUserCustomOpenaiModelName(
+      user.id,
+    );
 
     return Response.json({ ...config }, { status: 200 });
   } catch (err) {
@@ -79,12 +93,21 @@ export const GET = async (req: Request) => {
   }
 };
 
-export const POST = async (req: Request) => {
+export const POST = async (req: NextRequest) => {
   try {
+    // Authenticate user
+    const user = await authenticateRequest(req);
+    if (!user) {
+      return Response.json(
+        { message: 'Authentication required' },
+        { status: 401 },
+      );
+    }
+
     const config = await req.json();
 
-    const updatedConfig = {
-      MODELS: {
+    const userConfigData = {
+      providers: {
         OPENAI: {
           API_KEY: config.openaiApiKey,
         },
@@ -120,9 +143,11 @@ export const POST = async (req: Request) => {
           MODEL_NAME: config.customOpenaiModelName,
         },
       },
+      customOpenaiBaseUrl: config.customOpenaiApiUrl,
+      customOpenaiKey: config.customOpenaiApiKey,
     };
 
-    updateConfig(updatedConfig);
+    await updateUserConfig(user.id, userConfigData);
 
     return Response.json({ message: 'Config updated' }, { status: 200 });
   } catch (err) {
